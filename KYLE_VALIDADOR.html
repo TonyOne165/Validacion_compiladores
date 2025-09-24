@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validador de Patrones</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #ffffff;
+            color: #333;
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 30px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 40px;
+            color: #333;
+            font-size: 28px;
+        }
+
+        .validation-box {
+            margin-bottom: 35px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+        }
+
+        .validation-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #444;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #666;
+        }
+
+        button {
+            padding: 12px 20px;
+            background-color: #333;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background-color: #555;
+        }
+
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .result.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .result.error {
+            background-color: #f8d7da;
+            color: #721c24; 
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Validador de Patrones kyle</h1>
+
+        <div class="validation-box">
+            <div class="validation-title">Correo Institucional</div>
+            <div class="input-container">
+                <input type="text" id="emailInput" placeholder="Ingrese el correo electrónico">
+                <button onclick="checkEmail()">Validar</button>
+            </div>
+            <div id="emailResult" class="result"></div>
+        </div>
+
+        <div class="validation-box">
+            <div class="validation-title">Código Hexadecimal</div>
+            <div class="input-container">
+                <input type="text" id="hexInput" placeholder="Ingrese el código hexadecimal">
+                <button onclick="checkHex()">Validar</button>
+            </div>
+            <div id="hexResult" class="result"></div>
+        </div>
+
+        <div class="validation-box">
+            <div class="validation-title">Número Decimal</div>
+            <div class="input-container">
+                <input type="text" id="decimalInput" placeholder="Ingrese el número decimal">
+                <button onclick="checkDecimal()">Validar</button>
+            </div>
+            <div id="decimalResult" class="result"></div>
+        </div>
+
+                <div class="validation-box">
+            <div class="validation-title">Listo profe</div>
+            <div class="input-container">
+                    <input type="text" id="profeInput" placeholder="Pon tu nota (1-5)">
+                    <button onclick="checkProfe()">Confirmar nota</button>
+                </div>
+                <div id="profeResult" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        function displayResult(elementId, isValid, message) {
+            const element = document.getElementById(elementId);
+            element.className = isValid ? 'result success' : 'result error';
+            element.textContent = message;
+        }
+
+        function checkEmail() {
+            const email = document.getElementById('emailInput').value;
+            
+            const pattern1 = /^[a-z]+\d{1,2}@curnvirtual\.edu\.co$/;
+            const pattern2 = /^[aeiouAEIOU][a-zA-Z]*[._][a-zA-Z]*@curn\.edu\.co$/;
+            
+            const isValid = pattern1.test(email) || pattern2.test(email);
+            
+            if (isValid) {
+                displayResult('emailResult', true, 'Correo electrónico válido');
+            } else {
+                displayResult('emailResult', false, 'Formato de correo incorrecto');
+            }
+        }
+
+        function checkHex() {
+            const hex = document.getElementById('hexInput').value;
+            const pattern = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
+            
+            const isValid = pattern.test(hex);
+            
+            if (isValid) {
+                displayResult('hexResult', true, 'Código hexadecimal válido');
+            } else {
+                displayResult('hexResult', false, 'Formato hexadecimal incorrecto');
+            }
+        }
+
+        function checkDecimal() {
+            const decimal = document.getElementById('decimalInput').value;
+            const pattern = /^([0-4],\d|5,0)$/;
+            
+            const isValid = pattern.test(decimal);
+            
+            if (isValid) {
+                displayResult('decimalResult', true, 'Número decimal válido');
+            } else {
+                displayResult('decimalResult', false, 'Número decimal fuera de rango');
+            }
+        }
+        function checkProfe() {
+            const nota = document.getElementById('profeInput').value.trim();
+            let mensaje = '';
+            let valido = true;
+            switch (nota) {
+                case '5':
+                    mensaje = 'gracias profeeeeeee';
+                    break;
+                case '4':
+                    mensaje = 'aceptable';
+                    break;
+                case '3':
+                    mensaje = 'nombe que';
+                    break;
+                case '2':
+                    mensaje = 'así noo';
+                    break;
+                case '1':
+                    mensaje = 'TODO BIEEEEN.';
+                    break;
+                default:
+                    mensaje = 'Pon un número del 1 al 5';
+                    valido = false;
+            }
+            displayResult('profeResult', valido, mensaje);
+        }
+    </script>
+</body>
+</html>
