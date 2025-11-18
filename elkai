@@ -1,0 +1,581 @@
+import React, { useState, useEffect } from 'react';
+import { AlertCircle, CheckCircle, Code, History, FileText, Play } from 'lucide-react';
+
+const PseudocodeVerifier = () => {
+  const [code, setCode] = useState(`ALGORITMO CalcularPromedio
+INICIO
+  DECLARAR numeros: ARREGLO[5] DE ENTERO
+  DECLARAR suma, promedio: REAL
+  DECLARAR i: ENTERO
+  
+  suma <- 0
+  
+  PARA i <- 1 HASTA 5 HACER
+    ESCRIBIR "Ingrese número ", i, ": "
+    LEER numeros[i]
+    suma <- suma + numeros[i]
+  FIN_PARA
+  
+  promedio <- suma / 5
+  ESCRIBIR "El promedio es: ", promedio
+FIN`);
+  
+  const [errors, setErrors] = useState([]);
+  const [warnings, setWarnings] = useState([]);
+  const [symbolTable, setSymbolTable] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [activeTab, setActiveTab] = useState('editor');
+  const [analyzing, setAnalyzing] = useState(false);
+
+  // Gramática y palabras reservadas
+  const keywords = [
+    'ALGORITMO', 'INICIO', 'FIN', 'DECLARAR', 'ENTERO', 'REAL', 'CADENA', 
+    'LOGICO', 'CARACTER', 'SI', 'ENTONCES', 'SINO', 'FIN_SI', 'MIENTRAS',
+    'HACER', 'FIN_MIENTRAS', 'PARA', 'HASTA', 'FIN_PARA', 'REPETIR',
+    'HASTA_QUE', 'SEGUN', 'CASO', 'FIN_SEGUN', 'FUNCION', 'PROCEDIMIENTO',
+    'RETORNAR', 'LEER', 'ESCRIBIR', 'VERDADERO', 'FALSO', 'Y', 'O', 'NO',
+    'ARREGLO', 'DE', 'REGISTRO', 'FIN_REGISTRO'
+  ];
+
+  const dataTypes = ['ENTERO', 'REAL', 'CADENA', 'LOGICO', 'CARACTER'];
+
+  // Analizador léxico
+  const tokenize = (line, lineNum) => {
+    const tokens = [];
+    let current = 0;
+    const text = line.trim();
+
+    while (current < text.length) {
+      let char = text[current];
+
+      // Espacios
+      if (/\s/.test(char)) {
+        current++;
+        continue;
+      }
+
+      // Comentarios
+      if (char === '/' && text[current + 1] === '/') {
+        break;
+      }
+
+      // Cadenas
+      if (char === '"') {
+        let value = '';
+        current++;
+        while (current < text.length && text[current] !== '"') {
+          value += text[current];
+          current++;
+        }
+        tokens.push({ type: 'STRING', value, line: lineNum });
+        current++;
+        continue;
+      }
+
+      // Números
+      if (/[0-9]/.test(char)) {
+        let value = '';
+        let isReal = false;
+        while (current < text.length && (/[0-9.]/.test(text[current]))) {
+          if (text[current] === '.') isReal = true;
+          value += text[current];
+          current++;
+        }
+        tokens.push({ 
+          type: isReal ? 'REAL_LITERAL' : 'INT_LITERAL', 
+          value, 
+          line: lineNum 
+        });
+        continue;
+      }
+
+      // Operadores
+      if (/[+\-*/<>=]/.test(char)) {
+        let value = char;
+        current++;
+        if (current < text.length && /[=<>]/.test(text[current])) {
+          value += text[current];
+          current++;
+        }
+        tokens.push({ type: 'OPERATOR', value, line: lineNum });
+        continue;
+      }
+
+      // Identificadores y palabras clave
+      if (/[a-zA-Z_]/.test(char)) {
+        let value = '';
+        while (current < text.length && /[a-zA-Z0-9_]/.test(text[current])) {
+          value += text[current];
+          current++;
+        }
+        const upperValue = value.toUpperCase();
+        const type = keywords.includes(upperValue) ? 'KEYWORD' : 'IDENTIFIER';
+        tokens.push({ type, value: upperValue, originalValue: value, line: lineNum });
+        continue;
+      }
+
+      // Otros caracteres
+      tokens.push({ type: 'SYMBOL', value: char, line: lineNum });
+      current++;
+    }
+
+    return tokens;
+  };
+
+  // Analizador sintáctico y semántico
+  const analyzeCode = () => {
+    setAnalyzing(true);
+    setTimeout(() => {
+      const lines = code.split('\n');
+      const foundErrors = [];
+      const foundWarnings = [];
+      const symbols = new Map();
+      const scopes = [new Map()]; // Stack de ámbitos
+      let currentScope = 0;
+      let inAlgorithm = false;
+      let algorithmName = '';
+      let lineIndex = 0;
+
+      // Primera pasada: declaraciones
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith('//')) continue;
+
+        const tokens = tokenize(line, i + 1);
+        lineIndex = i;
+
+        // ALGORITMO nombre
+        if (tokens[0]?.value === 'ALGORITMO') {
+          if (inAlgorithm) {
+            foundErrors.push({
+              line: i + 1,
+              type: 'Sintáctico',
+              message: 'Ya existe un algoritmo declarado',
+              severity: 'error'
+            });
+          }
+          if (tokens.length < 2 || tokens[1].type !== 'IDENTIFIER') {
+            foundErrors.push({
+              line: i + 1,
+              type: 'Sintáctico',
+              message: 'Se esperaba un nombre después de ALGORITMO',
+              severity: 'error'
+            });
+          } else {
+            algorithmName = tokens[1].originalValue;
+            inAlgorithm = true;
+          }
+          continue;
+        }
+
+        // INICIO
+        if (tokens[0]?.value === 'INICIO') {
+          if (!inAlgorithm) {
+            foundErrors.push({
+              line: i + 1,
+              type: 'Sintáctico',
+              message: 'INICIO sin ALGORITMO previo',
+              severity: 'error'
+            });
+          }
+          continue;
+        }
+
+        // DECLARAR
+        if (tokens[0]?.value === 'DECLARAR') {
+          let idx = 1;
+          const variables = [];
+          
+          // Recoger nombres de variables
+          while (idx < tokens.length && tokens[idx].type === 'IDENTIFIER') {
+            variables.push(tokens[idx].originalValue);
+            idx++;
+            if (tokens[idx]?.value === ',') idx++;
+          }
+
+          // Verificar tipo de dato
+          if (tokens[idx]?.value !== ':') {
+            foundErrors.push({
+              line: i + 1,
+              type: 'Sintáctico',
+              message: 'Se esperaba ":" después del nombre de variable',
+              severity: 'error'
+            });
+            continue;
+          }
+          idx++;
+
+          let varType = '';
+          let isArray = false;
+          let arraySize = 0;
+
+          // ARREGLO
+          if (tokens[idx]?.value === 'ARREGLO') {
+            isArray = true;
+            idx++;
+            if (tokens[idx]?.value === '[') {
+              idx++;
+              if (tokens[idx]?.type === 'INT_LITERAL') {
+                arraySize = parseInt(tokens[idx].value);
+                idx++;
+              }
+              if (tokens[idx]?.value === ']') {
+                idx++;
+              }
+              if (tokens[idx]?.value === 'DE') {
+                idx++;
+              }
+            }
+          }
+
+          // Tipo de dato
+          if (dataTypes.includes(tokens[idx]?.value)) {
+            varType = tokens[idx].value;
+          } else {
+            foundErrors.push({
+              line: i + 1,
+              type: 'Semántico',
+              message: `Tipo de dato inválido: ${tokens[idx]?.value}`,
+              severity: 'error'
+            });
+            continue;
+          }
+
+          // Registrar variables
+          variables.forEach(varName => {
+            if (scopes[currentScope].has(varName)) {
+              foundErrors.push({
+                line: i + 1,
+                type: 'Semántico',
+                message: `Variable "${varName}" ya declarada en este ámbito`,
+                severity: 'error'
+              });
+            } else {
+              scopes[currentScope].set(varName, {
+                type: varType,
+                isArray,
+                arraySize,
+                line: i + 1,
+                used: false,
+                initialized: false
+              });
+            }
+          });
+        }
+      }
+
+      // Segunda pasada: uso de variables
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith('//')) continue;
+
+        const tokens = tokenize(line, i + 1);
+        
+        // Asignaciones
+        const assignmentIdx = tokens.findIndex(t => t.value === '<-');
+        if (assignmentIdx > 0) {
+          const varName = tokens[assignmentIdx - 1].originalValue;
+          let varInfo = null;
+
+          // Buscar variable en ámbitos
+          for (let s = currentScope; s >= 0; s--) {
+            if (scopes[s].has(varName)) {
+              varInfo = scopes[s].get(varName);
+              varInfo.used = true;
+              varInfo.initialized = true;
+              break;
+            }
+          }
+
+          if (!varInfo) {
+            foundErrors.push({
+              line: i + 1,
+              type: 'Semántico',
+              message: `Variable "${varName}" no declarada`,
+              severity: 'error'
+            });
+          } else {
+            // Verificar tipo en asignación
+            const rightSide = tokens.slice(assignmentIdx + 1);
+            const hasReal = rightSide.some(t => t.type === 'REAL_LITERAL' || t.value === '/');
+            const hasString = rightSide.some(t => t.type === 'STRING');
+
+            if (varInfo.type === 'ENTERO' && hasReal) {
+              foundWarnings.push({
+                line: i + 1,
+                type: 'Advertencia de tipo',
+                message: `Posible pérdida de precisión: asignando REAL a ENTERO "${varName}"`,
+                severity: 'warning'
+              });
+            }
+            if ((varInfo.type === 'ENTERO' || varInfo.type === 'REAL') && hasString) {
+              foundErrors.push({
+                line: i + 1,
+                type: 'Semántico',
+                message: `Incompatibilidad de tipos: no se puede asignar CADENA a ${varInfo.type} "${varName}"`,
+                severity: 'error'
+              });
+            }
+          }
+        }
+
+        // LEER
+        if (tokens[0]?.value === 'LEER') {
+          for (let t = 1; t < tokens.length; t++) {
+            if (tokens[t].type === 'IDENTIFIER') {
+              const varName = tokens[t].originalValue;
+              let found = false;
+              for (let s = currentScope; s >= 0; s--) {
+                if (scopes[s].has(varName)) {
+                  const varInfo = scopes[s].get(varName);
+                  varInfo.used = true;
+                  varInfo.initialized = true;
+                  found = true;
+                  break;
+                }
+              }
+              if (!found) {
+                foundErrors.push({
+                  line: i + 1,
+                  type: 'Semántico',
+                  message: `Variable "${varName}" no declarada en LEER`,
+                  severity: 'error'
+                });
+              }
+            }
+          }
+        }
+
+        // ESCRIBIR
+        if (tokens[0]?.value === 'ESCRIBIR') {
+          for (let t = 1; t < tokens.length; t++) {
+            if (tokens[t].type === 'IDENTIFIER') {
+              const varName = tokens[t].originalValue;
+              let varInfo = null;
+              for (let s = currentScope; s >= 0; s--) {
+                if (scopes[s].has(varName)) {
+                  varInfo = scopes[s].get(varName);
+                  varInfo.used = true;
+                  break;
+                }
+              }
+              if (!varInfo) {
+                foundErrors.push({
+                  line: i + 1,
+                  type: 'Semántico',
+                  message: `Variable "${varName}" no declarada en ESCRIBIR`,
+                  severity: 'error'
+                });
+              } else if (!varInfo.initialized) {
+                foundWarnings.push({
+                  line: i + 1,
+                  type: 'Advertencia',
+                  message: `Variable "${varName}" podría no estar inicializada`,
+                  severity: 'warning'
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Verificar variables no utilizadas
+      scopes.forEach((scope, index) => {
+        scope.forEach((info, varName) => {
+          if (!info.used) {
+            foundWarnings.push({
+              line: info.line,
+              type: 'Advertencia',
+              message: `Variable "${varName}" declarada pero nunca utilizada`,
+              severity: 'warning'
+            });
+          }
+        });
+      });
+
+      // Construir tabla de símbolos
+      const symbolsArray = [];
+      scopes.forEach((scope) => {
+        scope.forEach((info, varName) => {
+          symbolsArray.push({
+            name: varName,
+            type: info.isArray ? `ARREGLO[${info.arraySize}] DE ${info.type}` : info.type,
+            line: info.line,
+            scope: 'Global'
+          });
+        });
+      });
+
+      setErrors(foundErrors);
+      setWarnings(foundWarnings);
+      setSymbolTable(symbolsArray);
+
+      // Guardar en historial
+      const newHistory = {
+        timestamp: new Date().toLocaleString(),
+        errors: foundErrors.length,
+        warnings: foundWarnings.length,
+        code: code.substring(0, 50) + '...'
+      };
+      setHistory(prev => [newHistory, ...prev.slice(0, 9)]);
+
+      setAnalyzing(false);
+    }, 300);
+  };
+
+  // Resaltado de sintaxis
+  const highlightCode = (text) => {
+    const lines = text.split('\n');
+    return lines.map((line, idx) => {
+      let highlighted = line;
+      
+      // Palabras clave
+      keywords.forEach(kw => {
+        const regex = new RegExp(`\\b${kw}\\b`, 'gi');
+        highlighted = highlighted.replace(regex, `<span class="keyword">${kw}</span>`);
+      });
+
+      // Strings
+      highlighted = highlighted.replace(/"([^"]*)"/g, '<span class="string">"$1"</span>');
+
+      // Números
+      highlighted = highlighted.replace(/\b\d+\.?\d*\b/g, '<span class="number">$&</span>');
+
+      // Comentarios
+      highlighted = highlighted.replace(/\/\/.*/g, '<span class="comment">$&</span>');
+
+      return (
+        <div key={idx} className="flex">
+          <span className="line-number">{idx + 1}</span>
+          <span dangerouslySetInnerHTML={{ __html: highlighted }} />
+        </div>
+      );
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border-t-4 border-indigo-600">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
+                <Code className="text-indigo-600" size={36} />
+                Verificador Semántico de Pseudocódigo
+              </h1>
+              <p className="text-gray-600 mt-2">
+                Análisis avanzado con detección de errores semánticos y sintácticos
+              </p>
+            </div>
+            <button
+              onClick={analyzeCode}
+              disabled={analyzing}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg 
+                       font-semibold flex items-center gap-2 transition-all shadow-md
+                       disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Play size={20} />
+              {analyzing ? 'Analizando...' : 'Analizar Código'}
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-2 mb-4">
+          {[
+            { id: 'editor', label: 'Editor', icon: Code },
+            { id: 'results', label: 'Resultados', icon: AlertCircle },
+            { id: 'symbols', label: 'Tabla de Símbolos', icon: FileText },
+            { id: 'history', label: 'Historial', icon: History }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all
+                ${activeTab === tab.id 
+                  ? 'bg-indigo-600 text-white shadow-md' 
+                  : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            >
+              <tab.icon size={18} />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+          {activeTab === 'editor' && (
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">Editor de Pseudocódigo</h2>
+              <textarea
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                className="w-full h-96 p-4 font-mono text-sm border-2 border-gray-200 rounded-lg
+                         focus:border-indigo-500 focus:outline-none resize-none"
+                spellCheck={false}
+              />
+              <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                <h3 className="font-semibold text-gray-700 mb-2">💡 Sintaxis soportada:</h3>
+                <ul className="text-sm text-gray-600 space-y-1">
+                  <li>• DECLARAR variable: TIPO (ENTERO, REAL, CADENA, LOGICO)</li>
+                  <li>• DECLARAR arreglo: ARREGLO[tamaño] DE TIPO</li>
+                  <li>• Asignación: variable ← expresión</li>
+                  <li>• Control: SI...ENTONCES...SINO, MIENTRAS, PARA, REPETIR</li>
+                  <li>• I/O: LEER variable, ESCRIBIR expresión</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'results' && (
+            <div className="p-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Errores */}
+                <div>
+                  <h2 className="text-xl font-bold text-red-600 mb-4 flex items-center gap-2">
+                    <AlertCircle size={24} />
+                    Errores ({errors.length})
+                  </h2>
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {errors.length === 0 ? (
+                      <div className="flex items-center gap-2 text-green-600 bg-green-50 p-4 rounded-lg">
+                        <CheckCircle size={20} />
+                        <span>¡No se encontraron errores!</span>
+                      </div>
+                    ) : (
+                      errors.map((error, idx) => (
+                        <div key={idx} className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
+                          <div className="flex justify-between items-start">
+                            <span className="font-semibold text-red-700">Línea {error.line}</span>
+                            <span className="text-xs bg-red-200 text-red-800 px-2 py-1 rounded">
+                              {error.type}
+                            </span>
+                          </div>
+                          <p className="text-red-900 mt-2">{error.message}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Advertencias */}
+                <div>
+                  <h2 className="text-xl font-bold text-yellow-600 mb-4 flex items-center gap-2">
+                    <AlertCircle size={24} />
+                    Advertencias ({warnings.length})
+                  </h2>
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {warnings.length === 0 ? (
+                      <div className="flex items-center gap-2 text-gray-600 bg-gray-50 p-4 rounded-lg">
+                        <CheckCircle size={20} />
+                        <span>No hay advertencias</span>
+                      </div>
+                    ) : (
+                      warnings.map((warning, idx) => (
+                        <div key={idx} className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+                          <div className="flex justify-between items-start">
+                            <span className="font-semibold text-yellow-700">Línea {warning.line}</span>
+                            <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
+                              {warning.type}
+            
