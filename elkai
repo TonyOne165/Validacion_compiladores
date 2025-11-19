@@ -1,8 +1,46 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { AlertCircle, CheckCircle, Code, History, FileText, Play } from 'lucide-react';
 
-const PseudocodeVerifier = () => {
-  const [code, setCode] = useState(`ALGORITMO CalcularPromedio
+// Definición de tipos
+interface Token {
+  type: string;
+  value: string;
+  originalValue?: string;
+  line: number;
+}
+
+interface SemanticError {
+  line: number;
+  type: string;
+  message: string;
+  severity: 'error' | 'warning';
+}
+
+interface SymbolInfo {
+  type: string;
+  isArray: boolean;
+  arraySize: number;
+  line: number;
+  used: boolean;
+  initialized: boolean;
+}
+
+interface Symbol {
+  name: string;
+  type: string;
+  line: number;
+  scope: string;
+}
+
+interface HistoryEntry {
+  timestamp: string;
+  errors: number;
+  warnings: number;
+  code: string;
+}
+
+const PseudocodeVerifier: React.FC = () => {
+  const [code, setCode] = useState<string>(`ALGORITMO CalcularPromedio
 INICIO
   DECLARAR numeros: ARREGLO[5] DE ENTERO
   DECLARAR suma, promedio: REAL
@@ -20,15 +58,15 @@ INICIO
   ESCRIBIR "El promedio es: ", promedio
 FIN`);
   
-  const [errors, setErrors] = useState([]);
-  const [warnings, setWarnings] = useState([]);
-  const [symbolTable, setSymbolTable] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [activeTab, setActiveTab] = useState('editor');
-  const [analyzing, setAnalyzing] = useState(false);
+  const [errors, setErrors] = useState<SemanticError[]>([]);
+  const [warnings, setWarnings] = useState<SemanticError[]>([]);
+  const [symbolTable, setSymbolTable] = useState<Symbol[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [activeTab, setActiveTab] = useState<string>('editor');
+  const [analyzing, setAnalyzing] = useState<boolean>(false);
 
   // Gramática y palabras reservadas
-  const keywords = [
+  const keywords: string[] = [
     'ALGORITMO', 'INICIO', 'FIN', 'DECLARAR', 'ENTERO', 'REAL', 'CADENA', 
     'LOGICO', 'CARACTER', 'SI', 'ENTONCES', 'SINO', 'FIN_SI', 'MIENTRAS',
     'HACER', 'FIN_MIENTRAS', 'PARA', 'HASTA', 'FIN_PARA', 'REPETIR',
@@ -37,16 +75,16 @@ FIN`);
     'ARREGLO', 'DE', 'REGISTRO', 'FIN_REGISTRO'
   ];
 
-  const dataTypes = ['ENTERO', 'REAL', 'CADENA', 'LOGICO', 'CARACTER'];
+  const dataTypes: string[] = ['ENTERO', 'REAL', 'CADENA', 'LOGICO', 'CARACTER'];
 
   // Analizador léxico
-  const tokenize = (line, lineNum) => {
-    const tokens = [];
+  const tokenize = (line: string, lineNum: number): Token[] => {
+    const tokens: Token[] = [];
     let current = 0;
     const text = line.trim();
 
     while (current < text.length) {
-      let char = text[current];
+      const char = text[current];
 
       // Espacios
       if (/\s/.test(char)) {
@@ -123,18 +161,15 @@ FIN`);
   };
 
   // Analizador sintáctico y semántico
-  const analyzeCode = () => {
+  const analyzeCode = (): void => {
     setAnalyzing(true);
     setTimeout(() => {
       const lines = code.split('\n');
-      const foundErrors = [];
-      const foundWarnings = [];
-      const symbols = new Map();
-      const scopes = [new Map()]; // Stack de ámbitos
+      const foundErrors: SemanticError[] = [];
+      const foundWarnings: SemanticError[] = [];
+      const scopes: Map<string, SymbolInfo>[] = [new Map()];
       let currentScope = 0;
       let inAlgorithm = false;
-      let algorithmName = '';
-      let lineIndex = 0;
 
       // Primera pasada: declaraciones
       for (let i = 0; i < lines.length; i++) {
@@ -142,7 +177,6 @@ FIN`);
         if (!line || line.startsWith('//')) continue;
 
         const tokens = tokenize(line, i + 1);
-        lineIndex = i;
 
         // ALGORITMO nombre
         if (tokens[0]?.value === 'ALGORITMO') {
@@ -162,7 +196,6 @@ FIN`);
               severity: 'error'
             });
           } else {
-            algorithmName = tokens[1].originalValue;
             inAlgorithm = true;
           }
           continue;
@@ -184,11 +217,11 @@ FIN`);
         // DECLARAR
         if (tokens[0]?.value === 'DECLARAR') {
           let idx = 1;
-          const variables = [];
+          const variables: string[] = [];
           
           // Recoger nombres de variables
           while (idx < tokens.length && tokens[idx].type === 'IDENTIFIER') {
-            variables.push(tokens[idx].originalValue);
+            variables.push(tokens[idx].originalValue || tokens[idx].value);
             idx++;
             if (tokens[idx]?.value === ',') idx++;
           }
@@ -229,13 +262,13 @@ FIN`);
           }
 
           // Tipo de dato
-          if (dataTypes.includes(tokens[idx]?.value)) {
+          if (dataTypes.includes(tokens[idx]?.value || '')) {
             varType = tokens[idx].value;
           } else {
             foundErrors.push({
               line: i + 1,
               type: 'Semántico',
-              message: `Tipo de dato inválido: ${tokens[idx]?.value}`,
+              message: `Tipo de dato inválido: ${tokens[idx]?.value || 'desconocido'}`,
               severity: 'error'
             });
             continue;
@@ -274,15 +307,17 @@ FIN`);
         // Asignaciones
         const assignmentIdx = tokens.findIndex(t => t.value === '<-');
         if (assignmentIdx > 0) {
-          const varName = tokens[assignmentIdx - 1].originalValue;
-          let varInfo = null;
+          const varName = tokens[assignmentIdx - 1].originalValue || tokens[assignmentIdx - 1].value;
+          let varInfo: SymbolInfo | undefined;
 
           // Buscar variable en ámbitos
           for (let s = currentScope; s >= 0; s--) {
             if (scopes[s].has(varName)) {
               varInfo = scopes[s].get(varName);
-              varInfo.used = true;
-              varInfo.initialized = true;
+              if (varInfo) {
+                varInfo.used = true;
+                varInfo.initialized = true;
+              }
               break;
             }
           }
@@ -323,13 +358,15 @@ FIN`);
         if (tokens[0]?.value === 'LEER') {
           for (let t = 1; t < tokens.length; t++) {
             if (tokens[t].type === 'IDENTIFIER') {
-              const varName = tokens[t].originalValue;
+              const varName = tokens[t].originalValue || tokens[t].value;
               let found = false;
               for (let s = currentScope; s >= 0; s--) {
                 if (scopes[s].has(varName)) {
                   const varInfo = scopes[s].get(varName);
-                  varInfo.used = true;
-                  varInfo.initialized = true;
+                  if (varInfo) {
+                    varInfo.used = true;
+                    varInfo.initialized = true;
+                  }
                   found = true;
                   break;
                 }
@@ -350,12 +387,14 @@ FIN`);
         if (tokens[0]?.value === 'ESCRIBIR') {
           for (let t = 1; t < tokens.length; t++) {
             if (tokens[t].type === 'IDENTIFIER') {
-              const varName = tokens[t].originalValue;
-              let varInfo = null;
+              const varName = tokens[t].originalValue || tokens[t].value;
+              let varInfo: SymbolInfo | undefined;
               for (let s = currentScope; s >= 0; s--) {
                 if (scopes[s].has(varName)) {
                   varInfo = scopes[s].get(varName);
-                  varInfo.used = true;
+                  if (varInfo) {
+                    varInfo.used = true;
+                  }
                   break;
                 }
               }
@@ -380,7 +419,7 @@ FIN`);
       }
 
       // Verificar variables no utilizadas
-      scopes.forEach((scope, index) => {
+      scopes.forEach((scope) => {
         scope.forEach((info, varName) => {
           if (!info.used) {
             foundWarnings.push({
@@ -394,7 +433,7 @@ FIN`);
       });
 
       // Construir tabla de símbolos
-      const symbolsArray = [];
+      const symbolsArray: Symbol[] = [];
       scopes.forEach((scope) => {
         scope.forEach((info, varName) => {
           symbolsArray.push({
@@ -411,7 +450,7 @@ FIN`);
       setSymbolTable(symbolsArray);
 
       // Guardar en historial
-      const newHistory = {
+      const newHistory: HistoryEntry = {
         timestamp: new Date().toLocaleString(),
         errors: foundErrors.length,
         warnings: foundWarnings.length,
@@ -421,36 +460,6 @@ FIN`);
 
       setAnalyzing(false);
     }, 300);
-  };
-
-  // Resaltado de sintaxis
-  const highlightCode = (text) => {
-    const lines = text.split('\n');
-    return lines.map((line, idx) => {
-      let highlighted = line;
-      
-      // Palabras clave
-      keywords.forEach(kw => {
-        const regex = new RegExp(`\\b${kw}\\b`, 'gi');
-        highlighted = highlighted.replace(regex, `<span class="keyword">${kw}</span>`);
-      });
-
-      // Strings
-      highlighted = highlighted.replace(/"([^"]*)"/g, '<span class="string">"$1"</span>');
-
-      // Números
-      highlighted = highlighted.replace(/\b\d+\.?\d*\b/g, '<span class="number">$&</span>');
-
-      // Comentarios
-      highlighted = highlighted.replace(/\/\/.*/g, '<span class="comment">$&</span>');
-
-      return (
-        <div key={idx} className="flex">
-          <span className="line-number">{idx + 1}</span>
-          <span dangerouslySetInnerHTML={{ __html: highlighted }} />
-        </div>
-      );
-    });
   };
 
   return (
@@ -488,19 +497,22 @@ FIN`);
             { id: 'results', label: 'Resultados', icon: AlertCircle },
             { id: 'symbols', label: 'Tabla de Símbolos', icon: FileText },
             { id: 'history', label: 'Historial', icon: History }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all
-                ${activeTab === tab.id 
-                  ? 'bg-indigo-600 text-white shadow-md' 
-                  : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-            >
-              <tab.icon size={18} />
-              {tab.label}
-            </button>
-          ))}
+          ].map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all
+                  ${activeTab === tab.id 
+                    ? 'bg-indigo-600 text-white shadow-md' 
+                    : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                <Icon size={18} />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Content */}
@@ -576,6 +588,4 @@ FIN`);
                         <div key={idx} className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
                           <div className="flex justify-between items-start">
                             <span className="font-semibold text-yellow-700">Línea {warning.line}</span>
-                            <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
-                              {warning.type}
-            
+                            <span className="text-xs bg-yellow-200 text-yellow-
